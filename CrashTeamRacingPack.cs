@@ -35,7 +35,8 @@ namespace CrowdControl.Games.Packs
         private const uint ADDR_TRACK_B = 0x098530;
         private const uint ADDR_TIME = 0x098830;
         private const uint ADDR_PAUSE = 0x1FFF88;
-        private const uint ADDR_MODE = 0x08D69C;
+        private const uint ADDR_MODE1 = 0x096b20;
+        private const uint ADDR_MODE2 = 0x096B28;
         private const uint ADDR_BACKCAM = 0x00A002;
         private const uint ADDR_NODRIFT = 0x00A004;
         private const uint ADDR_USEITEM = 0x00A006;
@@ -46,8 +47,8 @@ namespace CrowdControl.Games.Packs
         private const uint ADDR_AWARDC = 0x08FBAC;
         private const uint ADDR_AWARDD = 0x08FBB0;
         private const uint ADDR_DRIVER1 = 0x09900C;
-        private const uint ADDR_CHEATS = 0x096B28;
-        
+        private const uint ADDR_TITLEFLAG = 0x08D444;
+        private const uint ADDR_HUD = 0x098851;
 
         private uint previousSpeedAddress = 0;
 
@@ -197,11 +198,31 @@ namespace CrowdControl.Games.Packs
             Loading = 0xFF
         }
 
-        public enum MODE : byte
+        public enum MODE1 : uint
         {
-            Trophy = 0x07, //Also overworld and CTR
-            Relic = 0x01,
-            Boss = 0x00 //Also battle
+            Pause = 0x01,
+            Battle = 0x20,
+            StartOfRace = 0x40,
+            Vibrate = 0x100,
+            MainMenu = 0x2000,
+            TimeTrial = 0x20000,
+            AdventureMode = 0x80000,
+            AdventureArena = 0x100000,
+            EndOfRace = 0x200000,
+            Arcade = 0x400000,
+            RollItem = 0x800000,
+            Relic = 0x4000000,
+            Crystal_Challenge = 0x8000000,
+            AdventureCup = 0x10000000,
+            Cutscene = 0x20000000,
+            Loading = 0x40000000,
+            Boss = 0x80000000
+        }
+
+        public enum MODE2 : byte
+        {
+	        Token = 0x08,
+	        AnyCup = 0x10,
         }
 
         public enum Reward
@@ -374,11 +395,12 @@ namespace CrowdControl.Games.Packs
                     new Effect("No Left", "noleft"){Duration=15},
                     new Effect("No Right", "noright"){Duration=15},
                     new Effect("Backwards Camera", "camera"){Duration=15},
-                    //new Effect("Invisible", "invisible"),
+                    new Effect("Make Invisible", "invisible"){Duration=30},
                     new Effect("No Drifting", "nodrift"){Duration=20},
                     //new Effect("-1 Lap", "minuslap")
                     new Effect("Give Random Reward", "givereward"),
                     new Effect("Remove Random Reward", "takereward"),
+                    new Effect("Force Race Restart", "restart"),
                     new Effect("Icy Tracks","icy"){Duration=20}
                 };
 
@@ -390,11 +412,11 @@ namespace CrowdControl.Games.Packs
 
         public override List<Common.ItemType> ItemTypes => new List<Common.ItemType>();
 
-        public override List<ROMInfo> ROMTable => new List<ROMInfo>(new[]
+        public override ROMTable ROMTable => new[]
         {
             //new ROMInfo("Mega Man 2", null, Patching.Ignore, ROMStatus.ValidPatched,s => Patching.MD5(s, "caaeb9ee3b52839de261fd16f93103e6")),
             new ROMInfo("CTR - Crash Team Racing", null, Patching.Ignore, ROMStatus.ValidPatched,s => true)
-        });
+        };
 
         public override Game Game { get; } = new Game(92, "CTR - Crash Team Racing", "CrashTeamRacing", "PS1", ConnectorType.PS1Connector);
 
@@ -448,8 +470,8 @@ namespace CrowdControl.Games.Packs
                 //            && p == (byte)PAUSE.Unpaused
                 //            && Connector.Read8(GetItemAddress(), out byte i)
                 //            && i == 0x0F
-                //            && Connector.Read8(ADDR_MODE, out byte m)
-                //            && m != (byte)MODE.Relic,
+                //            && Connector.Read8(ADDR_MODE1, out byte m)
+                //            && m != (byte)MODE1.Relic,
                 //            //start action
                 //            () => Connector.SendMessage(request.DisplayViewer + "is starting a Team Frenzy.")
                 //            && Connector.Write8(GetItemAddress(), (byte)ITEM.Roulette),
@@ -507,30 +529,14 @@ namespace CrowdControl.Games.Packs
                     && revStateB == 0x00,
                     () => Connector.Write8(ADDR_NORIGHT, 0xFF) && Connector.Freeze8(ADDR_NORIGHT, 0xFF));
                     return;
-                //case "invisible":
-                //    byte trackStorageA = 0;
-                //    StartTimed(
-                //        //request
-                //        request,
-                //        //condition
-                //        () => Connector.Read8(ADDR_TRACK, out trackStorageA)
-                //        && Connector.Read8(ADDR_TRACK_B, out byte b)
-                //        && b == trackStorageA
-                //        && _tracks.Any(i => i.Value.id == trackStorageA)
-                //        && Connector.Read64LE(ADDR_TIME, out ulong t)
-                //        && t > 1000
-                //        && Connector.Read8(ADDR_PAUSE, out byte p)
-                //        && p == (byte)PAUSE.Unpaused
-                //        && Connector.Read8(GetItemAddress(), out byte o)
-                //        && o == (byte)ITEM.Nothing
-                //        && Connector.Read8(ADDR_MODE, out byte m)
-                //        && m != (byte)MODE.Relic,
-                //        //action
-                //        () => Connector.Write8(GetItemAddress(), (byte)ITEM.Invis) && Connector.Write8(ADDR_USEITEM, 0xFF),
-                //        TimeSpan.FromSeconds(2)
-                //        );
-                //    ;
-                //    return;
+                case "invisible":
+                    Connector.SendMessage(request.DisplayViewer + " made you invisible");
+                    StartTimed(request,
+                    () => Connector.Read32(GetInstanceFlag(), out uint instanceFlag)
+                    && instanceFlag > 0 && Connector.Write32(GetInstanceBackup(), instanceFlag),
+                    () => Connector.Write32(GetSkidMarks(), 0x00000000) && Connector.Freeze32(GetSkidMarks(), 0x00000000)
+                    && Connector.Write32(GetInstanceFlag(), 0x00000000) && Connector.Freeze32(GetInstanceFlag(), 0x00000000));
+                    return;
                 case "givereward":
                     Connector.SendMessage(request.DisplayViewer + " gave you a random reward");
                     TryEffect(
@@ -555,13 +561,25 @@ namespace CrowdControl.Games.Packs
                         && awardc != 0x0000),
                         () => TakeReward());
                     return;
+                case "restart":
+                    Connector.SendMessage(request.DisplayViewer + " forced race restart");
+                    TryEffect(request,
+                        () => (Connector.Read32(ADDR_MODE1, out uint gameMode1)
+                        && (uint)(gameMode1 & (uint)(MODE1.Pause | MODE1.MainMenu | MODE1.Cutscene | MODE1.AdventureArena)) == 0) &&
+                        (Connector.Read8(0x098530, out byte t)
+                        && t < (byte)TRACK.Gemstone) &&
+                        (Connector.Read16(ADDR_TITLEFLAG, out ushort flagPosition)
+                        && flagPosition < 5000),
+                        () => ForceRestart()
+                    );
+                    return;
                 case "icy":
                     uint state = 0;
                     Connector.SendMessage(request.DisplayViewer + " made it icy");
                     StartTimed(request,
-                    () => Connector.Read32(ADDR_CHEATS, out state)
+                    () => Connector.Read32(ADDR_MODE2, out state)
                     && (state | 0x80000) > state,
-                    () => Connector.Write32(ADDR_CHEATS, (state | 0x80000)));
+                    () => Connector.Write32(ADDR_MODE2, (state | 0x80000)));
                     return;
             }
 
@@ -592,13 +610,15 @@ namespace CrowdControl.Games.Packs
                     Connector.Write8(ADDR_NORIGHT, 0x00);
                     return true;
                 case "invisible":
-                    Connector.Unfreeze(ADDR_USEITEM);
-                    Connector.Write8(ADDR_USEITEM, 0x00);
+                    Connector.Read32(GetInstanceBackup(), out uint instanceBackup);
+                    Connector.Unfreeze(GetSkidMarks());
+                    Connector.Unfreeze(GetInstanceFlag());
+                    Connector.Write32(GetInstanceFlag(), instanceBackup);
                     return true;
                 case "icy":
                     uint state = 0;
-                    Connector.Read32(ADDR_CHEATS, out state);
-                    Connector.Write32(ADDR_CHEATS, state - 0x80000);
+                    Connector.Read32(ADDR_MODE2, out state);
+                    Connector.Write32(ADDR_MODE2, state - 0x80000);
                     return true;
                 default:
                     return true;
@@ -622,8 +642,8 @@ namespace CrowdControl.Games.Packs
                 && p == (byte)PAUSE.Unpaused
                 && Connector.Read8(GetItemAddress(), out byte o)
                 && o == (byte)ITEM.Nothing
-                && Connector.Read8(ADDR_MODE, out byte m)
-                && m != (byte)MODE.Relic,
+                && Connector.Read32(ADDR_MODE1, out uint m)
+                && m != (uint)MODE1.Relic,
                 //action
                 () => Connector.Write8(GetItemAddress(), Item)
                 );
@@ -695,8 +715,6 @@ namespace CrowdControl.Games.Packs
             return false;*/
 
             //select random starting bank
-
-
 
             List<string> rewardList = _rewards.Keys.ToList();
             rewardList.Shuffle();
@@ -1001,6 +1019,17 @@ namespace CrowdControl.Games.Packs
             return true;
         }
 
+        private bool ForceRestart()
+        {
+            byte hudFlag;
+            Connector.Read8(ADDR_HUD, out hudFlag);
+            Connector.Write16(ADDR_HUD, (ushort)(hudFlag & ~(1)));
+            Connector.Write32(ADDR_TITLEFLAG + 0xC, 0xFFFFFFFF);
+            Connector.Write16(ADDR_TITLEFLAG, (ushort)5000);
+            Connector.Write8(ADDR_TITLEFLAG - 0x4, 0);
+            Connector.Write32(0x08D0F8, 0xFFFFFFFB);
+            return true;
+        }
         private void ChangeCharacter(byte Character, EffectRequest request)
         {
             TryEffect(
@@ -1009,9 +1038,8 @@ namespace CrowdControl.Games.Packs
                 //condition
                 () => Connector.Read8(ADDR_PAUSE, out byte p)
                 && p == (byte)PAUSE.Unpaused
-                && Connector.Read8(ADDR_MODE, out byte m)
-                && m != (byte)MODE.Boss
-                && m != (byte)MODE.Relic
+                && Connector.Read32(ADDR_MODE1, out uint m)
+                && (m & ((uint)MODE1.Boss | (uint)MODE1.Relic)) == 0
                 && Connector.Read64LE(ADDR_TIME, out ulong t)
                 && t > 1000,
                 //action
@@ -1024,6 +1052,25 @@ namespace CrowdControl.Games.Packs
         {
             Connector.Read32LE(ADDR_DRIVER1, out uint driverAddress);
             return driverAddress - 0x80000000 + 0x36;
+        }
+        
+        private uint GetInstanceFlag()
+        {
+            Connector.Read32LE(ADDR_DRIVER1, out uint driverAddress);
+            Connector.Read32LE(driverAddress - 0x80000000 + 0x1c, out uint instanceAddress);
+            return instanceAddress - 0x80000000 + 0x28;
+        }
+
+        private uint GetSkidMarks()
+        {
+            Connector.Read32LE(ADDR_DRIVER1, out uint driverAddress);
+            return driverAddress - 0x80000000 + 0x2c4;
+        }
+
+        private uint GetInstanceBackup()
+        {
+            Connector.Read32LE(ADDR_DRIVER1, out uint driverAddress);
+            return driverAddress - 0x80000000 + 0x2c;
         }
 
         private uint GetSpeedAddress()
