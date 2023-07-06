@@ -42,13 +42,13 @@ namespace CrowdControl.Games.Packs
         private const uint ADDR_USEITEM = 0x00A006;
         private const uint ADDR_NOLEFT = 0x00A008;
         private const uint ADDR_NORIGHT = 0x00A00A;
+        private const uint ADDR_NUMLAP = 0x098853;
         private const uint ADDR_AWARDA = 0x08FBA4;
         private const uint ADDR_AWARDB = 0x08FBA8;
         private const uint ADDR_AWARDC = 0x08FBAC;
         private const uint ADDR_AWARDD = 0x08FBB0;
         private const uint ADDR_DRIVER1 = 0x09900C;
-        private const uint ADDR_TITLEFLAG = 0x08D444;
-        private const uint ADDR_HUD = 0x098851;
+        private const uint ADDR_GAMESTATE = 0x08D0F4;
 
         private uint previousSpeedAddress = 0;
 
@@ -104,7 +104,7 @@ namespace CrowdControl.Games.Packs
             CocoPark        = 14,
             TinyArena       = 15,
             Slide           = 16,
-            Turbo           = 17,
+            TurboTrack      = 17,
             NitroCourt      = 18,
             RampageRuins    = 19,
             ParkingLot      = 20,
@@ -219,10 +219,21 @@ namespace CrowdControl.Games.Packs
             Boss = 0x80000000
         }
 
-        public enum MODE2 : byte
+        public enum MODE2 : uint
         {
 	        Token = 0x08,
 	        AnyCup = 0x10,
+            CheatWumpa = 0x200,
+            CheatMask = 0x400,
+            CheatTurbo = 0x800,
+            CheatInvisible = 0x8000,
+            CheatEngine = 0x10000,
+            CheatAdv = 0x40000,
+            CheatIcy = 0x80000,
+            CheatTurboPad = 0x100000,
+            CheatSuperHard = 0x200000,
+            CheatBombs = 0x400000,
+            CheatOneLap = 0x800000,
         }
 
         public enum Reward
@@ -397,11 +408,14 @@ namespace CrowdControl.Games.Packs
                     new Effect("Backwards Camera", "camera"){Duration=15},
                     new Effect("Make Invisible", "invisible"){Duration=30},
                     new Effect("No Drifting", "nodrift"){Duration=20},
-                    //new Effect("-1 Lap", "minuslap")
+                    new Effect("Skip a lap", "lapskip"),
+                    new Effect("Remove a lap", "takelap"),
+                    new Effect("-1 Lap", "minuslap"){Duration=60},
                     new Effect("Give Random Reward", "givereward"),
                     new Effect("Remove Random Reward", "takereward"),
                     new Effect("Force Race Restart", "restart"),
-                    new Effect("Icy Tracks","icy"){Duration=20}
+                    new Effect("Icy Tracks","icy"){Duration=20},
+                    new Effect("Activate Super Turbo Pads", "stp"){Duration=45}
                 };
 
                 effects.AddRange(_items.Select(t => new Effect($"Give Item: {t.Value.name}", $"item_{t.Key}", "itemgive")));
@@ -561,25 +575,69 @@ namespace CrowdControl.Games.Packs
                         && awardc != 0x0000),
                         () => TakeReward());
                     return;
+                case "lapskip":
+                    Connector.SendMessage(request.DisplayViewer + " made you skip a lap");
+                    TryEffect(request,
+                        () => (Connector.Read32(ADDR_MODE1, out uint gameMode1)
+                        && (uint)(gameMode1 & (uint)(MODE1.Battle | MODE1.Loading | MODE1.MainMenu | MODE1.Cutscene | MODE1.AdventureArena)) == 0)
+                        && (Connector.Read8(0x098530, out byte t)
+                        && t < (byte)TRACK.NitroCourt) 
+                        && (Connector.Read8(GetCurrentLap(), out byte lapIndex)
+                        && lapIndex < 2),
+                        () => (Connector.Read8(GetCurrentLap(), out byte lapIndex)
+                        && Connector.Write8(GetCurrentLap(), (byte)(lapIndex + 1)))
+                    );
+                    return;
+                case "takelap":
+                    Connector.SendMessage(request.DisplayViewer + " made you lose a lap");
+                    TryEffect(request,
+                        () => (Connector.Read32(ADDR_MODE1, out uint gameMode1)
+                        && (uint)(gameMode1 & (uint)(MODE1.Battle | MODE1.Loading | MODE1.MainMenu | MODE1.Cutscene | MODE1.AdventureArena)) == 0)
+                        && (Connector.Read8(0x098530, out byte t)
+                        && t < (byte)TRACK.NitroCourt) 
+                        && (Connector.Read8(GetCurrentLap(), out byte lapIndex)
+                        && lapIndex > 0),
+                        () => (Connector.Read8(GetCurrentLap(), out byte lapIndex)
+                        && Connector.Write8(GetCurrentLap(), (byte)(lapIndex - 1)))
+                    );
+                    return;
+                case "minuslap":
+                    Connector.SendMessage(request.DisplayViewer + " made the race endless temporarily");
+                    StartTimed(request,
+                        () => (Connector.Read32(ADDR_MODE1, out uint gameMode1)
+                        && (uint)(gameMode1 & (uint)(MODE1.Battle | MODE1.Loading | MODE1.MainMenu | MODE1.Cutscene | MODE1.AdventureArena)) == 0)
+                        && (Connector.Read8(0x098530, out byte t)
+                        && t < (byte)TRACK.NitroCourt),
+                        () => Connector.Write8(ADDR_NUMLAP, 0xFF) 
+                    );
+                    return;
                 case "restart":
                     Connector.SendMessage(request.DisplayViewer + " forced race restart");
                     TryEffect(request,
                         () => (Connector.Read32(ADDR_MODE1, out uint gameMode1)
-                        && (uint)(gameMode1 & (uint)(MODE1.Pause | MODE1.MainMenu | MODE1.Cutscene | MODE1.AdventureArena)) == 0) &&
-                        (Connector.Read8(0x098530, out byte t)
-                        && t < (byte)TRACK.Gemstone) &&
-                        (Connector.Read16(ADDR_TITLEFLAG, out ushort flagPosition)
-                        && flagPosition < 5000),
-                        () => ForceRestart()
+                        && (uint)(gameMode1 & (uint)(MODE1.Pause | MODE1.Loading | MODE1.MainMenu | MODE1.Cutscene | MODE1.AdventureArena)) == 0)
+                        && (Connector.Read8(0x098530, out byte t)
+                        && t < (byte)TRACK.Gemstone) 
+                        && (Connector.Read8(ADDR_GAMESTATE, out byte gamestate)
+                        && gamestate == 3),
+                        () => Connector.Write8(ADDR_GAMESTATE, 2)
                     );
                     return;
                 case "icy":
-                    uint state = 0;
+                    uint icyState = 0;
                     Connector.SendMessage(request.DisplayViewer + " made it icy");
                     StartTimed(request,
-                    () => Connector.Read32(ADDR_MODE2, out state)
-                    && (state | 0x80000) > state,
-                    () => Connector.Write32(ADDR_MODE2, (state | 0x80000)));
+                    () => Connector.Read32(ADDR_MODE2, out icyState)
+                    && (icyState & (uint)MODE2.CheatIcy) == 0,
+                    () => Connector.Write32(ADDR_MODE2, (icyState | (uint)MODE2.CheatIcy)));
+                    return;
+                case "stp":
+                    uint stpState = 0;
+                    Connector.SendMessage(request.DisplayViewer + " activated Super Turbo Pad");
+                    StartTimed(request,
+                    () => Connector.Read32(ADDR_MODE2, out stpState)
+                    && (stpState & (uint)MODE2.CheatTurboPad) == 0,
+                    () => Connector.Write32(ADDR_MODE2, (stpState | (uint)MODE2.CheatTurboPad)));
                     return;
             }
 
@@ -615,10 +673,18 @@ namespace CrowdControl.Games.Packs
                     Connector.Unfreeze(GetInstanceFlag());
                     Connector.Write32(GetInstanceFlag(), instanceBackup);
                     return true;
+                case "minuslap":
+                    Connector.Write8(ADDR_NUMLAP, 3);
+                    return true;
                 case "icy":
-                    uint state = 0;
-                    Connector.Read32(ADDR_MODE2, out state);
-                    Connector.Write32(ADDR_MODE2, state - 0x80000);
+                    uint icyState = 0;
+                    Connector.Read32(ADDR_MODE2, out icyState);
+                    Connector.Write32(ADDR_MODE2, (uint)(icyState & ~((uint)MODE2.CheatIcy)));
+                    return true;
+                case "stp":
+                    uint stpState = 0;
+                    Connector.Read32(ADDR_MODE2, out stpState);
+                    Connector.Write32(ADDR_MODE2, (uint)(stpState & ~((uint)MODE2.CheatTurboPad)));
                     return true;
                 default:
                     return true;
@@ -824,9 +890,6 @@ namespace CrowdControl.Games.Packs
                         Connector.SendMessage("Giving:" + sreward);
                         Connector.SendMessage("Giving:" + greward);
                     }
-
-
-
                     Connector.SendMessage("Giving:" + reward);
 
                     return true;
@@ -1019,17 +1082,17 @@ namespace CrowdControl.Games.Packs
             return true;
         }
 
-        private bool ForceRestart()
-        {
-            byte hudFlag;
-            Connector.Read8(ADDR_HUD, out hudFlag);
-            Connector.Write16(ADDR_HUD, (ushort)(hudFlag & ~(1)));
-            Connector.Write32(ADDR_TITLEFLAG + 0xC, 0xFFFFFFFF);
-            Connector.Write16(ADDR_TITLEFLAG, (ushort)5000);
-            Connector.Write8(ADDR_TITLEFLAG - 0x4, 0);
-            Connector.Write32(0x08D0F8, 0xFFFFFFFB);
-            return true;
-        }
+        // private bool ForceRestart()
+        // {
+        //     ushort hudFlag;
+        //     Connector.Read16(ADDR_HUD, out hudFlag);
+        //     Connector.Write16(ADDR_HUD, (ushort)(hudFlag & ~(1)));
+        //     Connector.Write32(ADDR_TITLEFLAG + 0xC, 0xFFFFFFFF);
+        //     Connector.Write16(ADDR_TITLEFLAG, (ushort)5000);
+        //     Connector.Write8(ADDR_TITLEFLAG - 0x4, 0);
+        //     Connector.Write32(0x08D0F8, 0xFFFFFFFB);
+        //     return true;
+        // }
         private void ChangeCharacter(byte Character, EffectRequest request)
         {
             TryEffect(
@@ -1052,6 +1115,12 @@ namespace CrowdControl.Games.Packs
         {
             Connector.Read32LE(ADDR_DRIVER1, out uint driverAddress);
             return driverAddress - 0x80000000 + 0x36;
+        }
+
+        private uint GetCurrentLap()
+        {
+            Connector.Read32LE(ADDR_DRIVER1, out uint driverAddress);
+            return driverAddress - 0x80000000 + 0x44;
         }
         
         private uint GetInstanceFlag()
