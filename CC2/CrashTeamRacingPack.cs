@@ -28,7 +28,7 @@ namespace CrowdControl.Games.Packs
     [UsedImplicitly]
     public class CrashTeamRacing : PS1EffectPack
     {
-        public CrashTeamRacing(IPlayer player, Func<CrowdControlBlock, bool> responseHandler, Action<object> statusUpdateHandler) : base(player, responseHandler, statusUpdateHandler) { }
+        public CrashTeamRacing(UserRecord player, Func<CrowdControlBlock, bool> responseHandler, Action<object> statusUpdateHandler) : base(player, responseHandler, statusUpdateHandler) { }
 
         private const uint ADDR_CHARACTER = 0x086E84;
         private const uint ADDR_TRACK = 0x08D0FC;
@@ -395,42 +395,44 @@ namespace CrowdControl.Games.Packs
             {"NitroCourt", ("Nitro Court", (byte)TRACK.NitroCourt, (uint)ADDR_ITEM.NitroCourt, (uint)ADDR_ITEM.NitroCourt,0,0,0x199621) }
         };
 
-        public override List<Effect> Effects
+        public override EffectList Effects
         {
             get
             {
                 List<Effect> effects = new List<Effect>
                 {
-                    new Effect("Give Item", "itemgive", ItemKind.Folder),
-                    new Effect("Change Character", "charchange", ItemKind.Folder),
-                    //new Effect("Team Frenzy (20s)", "frenzy"),
-                    new Effect("Cut The Engine", "brake"){Duration=10},
-                    new Effect("No Left", "noleft"){Duration=15},
-                    new Effect("No Right", "noright"){Duration=15},
-                    new Effect("Backwards Camera", "backcam"){Duration=15},
-                    new Effect("Spectator Camera", "spectate"){Duration=15},
-                    new Effect("First Person Mode", "fps"){Duration=15},
-                    new Effect("Freeze Camera", "freezecam"){Duration=5},
-                    new Effect("Make Invisible", "invisible"){Duration=30},
-                    new Effect("No Drifting/Hopping", "nodrift"){Duration=20},
-                    new Effect("Zero Gravity", "zerograv"){Duration=20},
-                    new Effect("Skip a lap", "lapskip"),
-                    new Effect("Remove a lap", "takelap"),
-                    new Effect("-1 Lap", "minuslap"){Duration=60},
-                    new Effect("Give Random Prize", "givereward"),
-                    new Effect("Remove Random Prize", "takereward"),
-                    new Effect("Force Race Restart", "restart"),
-                    new Effect("Icy Tracks","icy"){Duration=20},
-                    new Effect("Activate Super Turbo Pads", "stp"){Duration=45}
+                    // new("Give Item", "itemgive", ItemKind.Folder),
+                    // new("Change Character", "charchange", ItemKind.Folder),
+                    //new("Team Frenzy (20s)", "frenzy"),
+                    new("Cut The Engine", "brake"){Duration=10},
+                    new("No Left", "noleft"){Duration=15},
+                    new("No Right", "noright"){Duration=15},
+                    new("Backwards Camera", "backcam"){Duration=15},
+                    new("Spectator Camera", "spectate"){Duration=15},
+                    new("First Person Mode", "fps"){Duration=15},
+                    new("Freeze Camera", "freezecam"){Duration=5},
+                    new("Make Invisible", "invisible"){Duration=30},
+                    new("No Drifting/Hopping", "nodrift"){Duration=20},
+                    new("Zero Gravity", "zerograv"){Duration=20},
+                    new("Skip a lap", "lapskip"),
+                    new("Remove a lap", "takelap"),
+                    new("-1 Lap", "minuslap"){Duration=60},
+                    new("Give Random Prize", "givereward"),
+                    new("Remove Random Prize", "takereward"),
+                    new("Force Race Restart", "restart"),
+                    new("Icy Tracks","icy"){Duration=20},
+                    new("Activate Super Turbo Pads", "stp"){Duration=45}
                 };
 
-                effects.AddRange(_items.Select(t => new Effect($"Give Item: {t.Value.name}", $"item_{t.Key}", "itemgive")));
-                effects.AddRange(_chars.Select(t => new Effect($"Change Character: {t.Value.name}", $"char_{t.Key}", "charchange")));
+                effects.AddRange(_items.Select(t => 
+                    new Effect($"Give Item: {t.Value.name}", $"item_{t.Key}") { Category = "Give Item" }));
+                effects.AddRange(_chars.Select(t => 
+                    new Effect($"Change Character: {t.Value.name}", $"char_{t.Key}") { Category = "Change Character" }));
                 return effects;
             }
         }
 
-        public override List<Common.ItemType> ItemTypes => new List<Common.ItemType>();
+        // public override List<Common.ItemType> ItemTypes => new List<Common.ItemType>();
 
         public override ROMTable ROMTable => new[]
         {
@@ -457,7 +459,8 @@ namespace CrowdControl.Games.Packs
                 init = false;
             }
 
-            string[] codeParams = request.FinalCode.Split('_');
+            // string[] codeParams = request.FinalCode.Split('_');
+            string[] codeParams = FinalCode(request).Split('_');
 
             switch (codeParams[0])
             {
@@ -542,6 +545,14 @@ namespace CrowdControl.Games.Packs
                     && (uint)(gameMode1 & (uint)(MODE1.StartOfRace | MODE1.Loading | MODE1.MainMenu | MODE1.Cutscene )) == 0),
                     () => Connector.Write8(ADDR_CAMMODE, 0x0F),
                     TimeSpan.FromSeconds(15));
+                    return;
+                case "freezecam":
+                    Connector.SendMessage(request.DisplayViewer + " activated first person mode");
+                    StartTimed(request,
+                    () => (Connector.Read32(ADDR_MODE1, out uint gameMode1)
+                    && (uint)(gameMode1 & (uint)(MODE1.StartOfRace | MODE1.Loading | MODE1.MainMenu | MODE1.Cutscene )) == 0),
+                    () => Connector.Write8(ADDR_CAMMODE, 0x0F),
+                    TimeSpan.FromSeconds(5));
                     return;
                 case "nodrift":
                     Connector.SendMessage(request.DisplayViewer + " disabled drifting");
@@ -686,7 +697,8 @@ namespace CrowdControl.Games.Packs
 
         protected override bool StopEffect(EffectRequest request)
         {
-            switch (request.BaseCode)
+            // switch (request.BaseCode)
+            switch (request.EffectID)
             {
                 case "brake":
                     Connector.Unfreeze(previousAddress);
@@ -699,6 +711,9 @@ namespace CrowdControl.Games.Packs
                     Connector.Write8(ADDR_CAMMODE, 0x00);
                     return true;
                 case "fps":
+                    Connector.Write8(ADDR_CAMMODE, 0x00);
+                    return true;
+                case "freezecam":
                     Connector.Write8(ADDR_CAMMODE, 0x00);
                     return true;
                 case "nodrift":
