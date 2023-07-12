@@ -12,6 +12,8 @@ Made using Crowd Control 1.0 SDK in C#.
 + Give an item
 + Change the Character 
 + Force Restart 
++ Cut the Engine
++ Instant Boost (WIP)
 
 <details>
 <summary>Turn off inputs</summary>
@@ -19,13 +21,16 @@ Made using Crowd Control 1.0 SDK in C#.
 <li>No left</li>
 <li>No right</li>
 <li>No jump/drift</li>
+<li>Mirror Inputs (WIP)</li>
 </ul>
 </details>
 <details>
 <summary>Change the camera</summary>
 <ul>
 <li>Backwards camera</li>
-<li>Helicopter view (WIP)</li>
+<li>Freeze Camera (WIP)</li>
+<li>Spectator camera (WIP)</li>
+<li>First Person Mode (WIP)</li>
 </ul>
 </details>
 <details>
